@@ -17,7 +17,8 @@ if [ ! -d "/workspace/ComfyUI" ]; then
 else
   echo "✅ ComfyUI already installed"
   cd /workspace/ComfyUI
-  git pull
+  git checkout master 2>/dev/null || git checkout HEAD
+  git pull || true
 fi
 
 # ── 2. Custom Nodes ──────────────────────────────────────────
@@ -45,85 +46,61 @@ for repo in "${nodes[@]}"; do
   fi
 done
 
-# ── 3. Models — Flux Kontext (Image Editing) ─────────────────
+# ── 3. Models ────────────────────────────────────────────────
 echo "📥 Downloading models..."
 cd /workspace/ComfyUI/models
 
-# UNET — Flux Kontext fp8 (11.9GB)
-if [ ! -f "unet/flux1-dev-kontext_fp8_scaled.safetensors" ]; then
-  echo "  → Downloading Flux Kontext fp8 (~11.9GB)..."
-  wget -q --show-progress \
-    "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors" \
-    -O unet/flux1-dev-kontext_fp8_scaled.safetensors
-else
-  echo "  ✅ Flux Kontext already downloaded"
-fi
+download() {
+  local url=$1
+  local out=$2
+  if [ ! -f "$out" ] || [ ! -s "$out" ]; then
+    echo "  → Downloading $(basename $out)..."
+    curl -L --progress-bar "$url" -o "$out"
+    local size=$(stat -c%s "$out" 2>/dev/null || echo 0)
+    if [ "$size" -lt 1000000 ]; then
+      echo "  ❌ FAILED: $(basename $out) is too small — check URL"
+    else
+      echo "  ✅ $(basename $out) done ($(numfmt --to=iec $size))"
+    fi
+  else
+    echo "  ✅ $(basename $out) already exists"
+  fi
+}
 
-# CLIP L
-if [ ! -f "clip/clip_l.safetensors" ]; then
-  echo "  → Downloading clip_l..."
-  wget -q --show-progress \
-    "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/text_encoders/clip_l.safetensors" \
-    -O clip/clip_l.safetensors
-else
-  echo "  ✅ clip_l already downloaded"
-fi
+download \
+  "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors" \
+  "unet/flux1-dev-kontext_fp8_scaled.safetensors"
 
-# T5XXL fp8
-if [ ! -f "clip/t5xxl_fp8_e4m3fn.safetensors" ]; then
-  echo "  → Downloading t5xxl_fp8..."
-  wget -q --show-progress \
-    "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/text_encoders/t5xxl_fp8_e4m3fn.safetensors" \
-    -O clip/t5xxl_fp8_e4m3fn.safetensors
-else
-  echo "  ✅ t5xxl_fp8 already downloaded"
-fi
+download \
+  "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/text_encoders/clip_l.safetensors" \
+  "clip/clip_l.safetensors"
 
-# VAE — ae.safetensors
-if [ ! -f "vae/ae.safetensors" ]; then
-  echo "  → Downloading VAE..."
-  wget -q --show-progress \
-    "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/vae/ae.safetensors" \
-    -O vae/ae.safetensors
-else
-  echo "  ✅ VAE already downloaded"
-fi
+download \
+  "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/text_encoders/t5xxl_fp8_e4m3fn.safetensors" \
+  "clip/t5xxl_fp8_e4m3fn.safetensors"
 
-# Upscaler 4x (optional but recommended)
+download \
+  "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/vae/ae.safetensors" \
+  "vae/ae.safetensors"
+
 mkdir -p upscale_models
-if [ ! -f "upscale_models/4x_NMKD-Siax_200k.pth" ]; then
-  echo "  → Downloading 4x Upscaler..."
-  wget -q --show-progress \
-    "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_NMKD-Siax_200k.pth" \
-    -O upscale_models/4x_NMKD-Siax_200k.pth
-else
-  echo "  ✅ Upscaler already downloaded"
-fi
+download \
+  "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_NMKD-Siax_200k.pth" \
+  "upscale_models/4x_NMKD-Siax_200k.pth"
 
 # ── 4. Workflows ─────────────────────────────────────────────
-echo "📋 Downloading workflows from GitHub..."
+echo "📋 Downloading workflows..."
 mkdir -p /workspace/ComfyUI/user/default/workflows
+rm -rf /tmp/baraa-workflows
+git clone https://github.com/Baraa7b7/comfyui-workflows.git /tmp/baraa-workflows 2>/dev/null && \
+  cp -r /tmp/baraa-workflows/* /workspace/ComfyUI/user/default/workflows/ 2>/dev/null && \
+  echo "  ✅ Workflows copied" || \
+  echo "  ⚠️  Could not clone workflows"
 
-if [ -d "/tmp/baraa-workflows" ]; then
-  rm -rf /tmp/baraa-workflows
-fi
-
-git clone https://github.com/Baraa7b7/comfyui-workflows.git /tmp/baraa-workflows 2>/dev/null || \
-  echo "  ⚠️  Could not clone workflows repo — add them manually"
-
-if [ -d "/tmp/baraa-workflows" ]; then
-  cp -r /tmp/baraa-workflows/* /workspace/ComfyUI/user/default/workflows/ 2>/dev/null || true
-  echo "  ✅ Workflows copied"
-fi
-
-# ── 5. Launch ComfyUI ────────────────────────────────────────
+# ── 5. Launch ────────────────────────────────────────────────
 echo ""
 echo "✅ Setup complete!"
-echo ""
 echo "🚀 Starting ComfyUI..."
 cd /workspace/ComfyUI
-python main.py --listen 0.0.0.0 --port 8188 --fp8_e4m3fn-unet &
-
-echo ""
-echo "🎬 ComfyUI running at: http://localhost:8188"
-echo "   Open in Vast.ai → Connect → Port 8188"
+python main.py --listen 0.0.0.0 --port 8188 &
+echo "🎬 Open: http://localhost:8188"
